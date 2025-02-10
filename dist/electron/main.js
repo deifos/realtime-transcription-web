@@ -2,9 +2,37 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path_1 = require("path");
+const store_1 = require("./store");
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
+let currentShortcut = null;
+let isShortcutPressed = false;
+function registerRecordingShortcut(shortcut) {
+    if (currentShortcut) {
+        electron_1.globalShortcut.unregister(currentShortcut);
+    }
+    try {
+        const success = electron_1.globalShortcut.register(shortcut, () => {
+            if (mainWindow && !isShortcutPressed) {
+                isShortcutPressed = true;
+                mainWindow.webContents.send("shortcut-down");
+            }
+        });
+        if (success) {
+            currentShortcut = shortcut;
+            return true;
+        }
+        else {
+            console.error(`Failed to register shortcut: ${shortcut}`);
+            return false;
+        }
+    }
+    catch (error) {
+        console.error(`Error registering shortcut: ${shortcut}`, error);
+        return false;
+    }
+}
 function createTray() {
     // Create a default 16x16 icon as a fallback
     const icon = electron_1.nativeImage.createEmpty();
@@ -42,9 +70,11 @@ function createTray() {
         {
             label: "Settings",
             click: () => {
-                // TODO: Implement settings window
-                mainWindow?.show();
-                mainWindow?.focus();
+                if (mainWindow) {
+                    mainWindow.show();
+                    mainWindow.focus();
+                    mainWindow.webContents.send("open-settings");
+                }
             },
         },
         { type: "separator" },
@@ -136,25 +166,45 @@ else {
 electron_1.app.whenReady().then(() => {
     createWindow();
     createTray();
-    // Register the shortcut
-    electron_1.globalShortcut.register("Alt+Shift+S", () => {
-        if (mainWindow) {
-            mainWindow.webContents.send("shortcut-down");
-        }
-    });
-    // Stop recording when keys are released (window loses focus)
+    // Register the shortcut from settings
+    const shortcut = store_1.store.shortcuts.startRecording;
+    registerRecordingShortcut(shortcut);
+    // Stop recording when keys are released
     if (mainWindow) {
-        const window = mainWindow; // Create a reference to avoid null checks
-        window.on("blur", () => {
-            window.webContents.send("shortcut-up");
-        });
-        // Also stop recording when Alt key is released (this usually happens when Alt+Tab is used)
+        const window = mainWindow;
+        // Monitor key states
         window.webContents.on("before-input-event", (event, input) => {
-            if (input.key === "Alt" && input.type === "keyUp") {
+            // Check for any key release when shortcut is active
+            if (isShortcutPressed &&
+                input.type === "keyUp" &&
+                (input.key === "Alt" ||
+                    input.key === "Shift" ||
+                    input.key.toLowerCase() === "s")) {
+                isShortcutPressed = false;
+                window.webContents.send("shortcut-up");
+            }
+        });
+        // Also stop recording when window loses focus
+        window.on("blur", () => {
+            if (isShortcutPressed) {
+                isShortcutPressed = false;
                 window.webContents.send("shortcut-up");
             }
         });
     }
+    // Handle shortcut change requests from renderer
+    electron_1.ipcMain.handle("update-shortcut", async (_, shortcut) => {
+        const success = registerRecordingShortcut(shortcut);
+        if (success) {
+            store_1.store.setShortcut("startRecording", shortcut);
+            return true;
+        }
+        return false;
+    });
+    // Handle requests to get current shortcut
+    electron_1.ipcMain.handle("get-shortcut", () => {
+        return store_1.store.shortcuts.startRecording;
+    });
 });
 // Quit when all windows are closed, except on macOS
 electron_1.app.on("window-all-closed", () => {
@@ -173,5 +223,8 @@ electron_1.app.on("before-quit", () => {
 });
 // Clean up shortcuts when app is quitting
 electron_1.app.on("will-quit", () => {
+    if (currentShortcut) {
+        electron_1.globalShortcut.unregister(currentShortcut);
+    }
     electron_1.globalShortcut.unregisterAll();
 });

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { SAMPLE_RATE } from "@/lib/constants";
 import { Loader2 } from "lucide-react";
+import { SettingsDialog } from "@/components/settings-dialog";
 
 type WorkerMessage =
   | { type: "status"; message: string; duration?: string }
@@ -15,6 +16,11 @@ declare global {
     electron: {
       onShortcutDown: (callback: () => void) => () => void;
       onShortcutUp: (callback: () => void) => () => void;
+      onOpenSettings: (callback: () => void) => () => void;
+      shortcuts: {
+        update: (shortcut: string) => Promise<boolean>;
+        getCurrent: () => Promise<string>;
+      };
     };
   }
 }
@@ -25,6 +31,7 @@ export default function Home() {
   const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
   const [isReady, setIsReady] = useState<boolean>(false);
+  const [showSettings, setShowSettings] = useState<boolean>(false);
 
   const worker = useRef<Worker | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -174,37 +181,44 @@ export default function Home() {
     window.addEventListener("keyup", handleKeyUp);
 
     // Handle global shortcut
+    let cleanupFns: (() => void)[] = [];
+
     if (window.electron) {
-      const cleanupDown = window.electron.onShortcutDown(async () => {
-        if (!isRecordingRef.current) {
-          setIsSpacePressed(true);
-          await startRecording();
-        }
-      });
+      cleanupFns.push(
+        window.electron.onShortcutDown(async () => {
+          if (!isRecordingRef.current) {
+            setIsSpacePressed(true);
+            await startRecording();
+          }
+        })
+      );
 
-      const cleanupUp = window.electron.onShortcutUp(() => {
-        if (isRecordingRef.current) {
-          setIsSpacePressed(false);
-          stopRecording();
-        }
-      });
+      cleanupFns.push(
+        window.electron.onShortcutUp(() => {
+          if (isRecordingRef.current) {
+            setIsSpacePressed(false);
+            stopRecording();
+          }
+        })
+      );
 
-      return () => {
-        window.removeEventListener("keydown", handleKeyDown);
-        window.removeEventListener("keyup", handleKeyUp);
-        cleanupDown();
-        cleanupUp();
-      };
+      cleanupFns.push(
+        window.electron.onOpenSettings(() => {
+          setShowSettings(true);
+        })
+      );
     }
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
+      cleanupFns.forEach((cleanup) => cleanup());
     };
   }, []);
 
   return (
     <div className="flex flex-col items-center justify-center flex-grow">
+      <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />
       {error ? (
         <div className="text-center p-2">
           <div className="text-white text-4xl md:text-5xl mb-1 font-semibold">

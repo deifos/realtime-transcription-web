@@ -5,12 +5,42 @@ import {
   Menu,
   nativeImage,
   globalShortcut,
+  ipcMain,
 } from "electron";
 import { join } from "path";
+import { store } from "./store";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
+let currentShortcut: string | null = null;
+let isShortcutPressed = false;
+
+function registerRecordingShortcut(shortcut: string) {
+  if (currentShortcut) {
+    globalShortcut.unregister(currentShortcut);
+  }
+
+  try {
+    const success = globalShortcut.register(shortcut, () => {
+      if (mainWindow && !isShortcutPressed) {
+        isShortcutPressed = true;
+        mainWindow.webContents.send("shortcut-down");
+      }
+    });
+
+    if (success) {
+      currentShortcut = shortcut;
+      return true;
+    } else {
+      console.error(`Failed to register shortcut: ${shortcut}`);
+      return false;
+    }
+  } catch (error) {
+    console.error(`Error registering shortcut: ${shortcut}`, error);
+    return false;
+  }
+}
 
 function createTray(): void {
   // Create a default 16x16 icon as a fallback
@@ -50,9 +80,11 @@ function createTray(): void {
     {
       label: "Settings",
       click: () => {
-        // TODO: Implement settings window
-        mainWindow?.show();
-        mainWindow?.focus();
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+          mainWindow.webContents.send("open-settings");
+        }
       },
     },
     { type: "separator" },
@@ -153,27 +185,52 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
 
-  // Register the shortcut
-  globalShortcut.register("Alt+Shift+S", () => {
-    if (mainWindow) {
-      mainWindow.webContents.send("shortcut-down");
-    }
-  });
+  // Register the shortcut from settings
+  const shortcut = store.shortcuts.startRecording;
+  registerRecordingShortcut(shortcut);
 
-  // Stop recording when keys are released (window loses focus)
+  // Stop recording when keys are released
   if (mainWindow) {
-    const window = mainWindow; // Create a reference to avoid null checks
-    window.on("blur", () => {
-      window.webContents.send("shortcut-up");
+    const window = mainWindow;
+
+    // Monitor key states
+    window.webContents.on("before-input-event", (event, input) => {
+      // Check for any key release when shortcut is active
+      if (
+        isShortcutPressed &&
+        input.type === "keyUp" &&
+        (input.key === "Alt" ||
+          input.key === "Shift" ||
+          input.key.toLowerCase() === "s")
+      ) {
+        isShortcutPressed = false;
+        window.webContents.send("shortcut-up");
+      }
     });
 
-    // Also stop recording when Alt key is released (this usually happens when Alt+Tab is used)
-    window.webContents.on("before-input-event", (event, input) => {
-      if (input.key === "Alt" && input.type === "keyUp") {
+    // Also stop recording when window loses focus
+    window.on("blur", () => {
+      if (isShortcutPressed) {
+        isShortcutPressed = false;
         window.webContents.send("shortcut-up");
       }
     });
   }
+
+  // Handle shortcut change requests from renderer
+  ipcMain.handle("update-shortcut", async (_, shortcut: string) => {
+    const success = registerRecordingShortcut(shortcut);
+    if (success) {
+      store.setShortcut("startRecording", shortcut);
+      return true;
+    }
+    return false;
+  });
+
+  // Handle requests to get current shortcut
+  ipcMain.handle("get-shortcut", () => {
+    return store.shortcuts.startRecording;
+  });
 });
 
 // Quit when all windows are closed, except on macOS
@@ -196,5 +253,8 @@ app.on("before-quit", () => {
 
 // Clean up shortcuts when app is quitting
 app.on("will-quit", () => {
+  if (currentShortcut) {
+    globalShortcut.unregister(currentShortcut);
+  }
   globalShortcut.unregisterAll();
 });

@@ -15,4 +15,16 @@ contextBridge.exposeInMainWorld("electron", {
       ipcRenderer.removeListener("shortcut-up", handler);
     };
   },
+  onOpenSettings: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on("open-settings", handler);
+    return () => {
+      ipcRenderer.removeListener("open-settings", handler);
+    };
+  },
+  shortcuts: {
+    update: (shortcut: string) =>
+      ipcRenderer.invoke("update-shortcut", shortcut),
+    getCurrent: () => ipcRenderer.invoke("get-shortcut"),
+  },
 });

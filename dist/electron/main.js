@@ -17,6 +17,8 @@ function registerRecordingShortcut(shortcut) {
             if (mainWindow && !isShortcutPressed) {
                 isShortcutPressed = true;
                 mainWindow.webContents.send("shortcut-down");
+                mainWindow.show();
+                mainWindow.focus();
             }
         });
         if (success) {
@@ -182,6 +184,7 @@ electron_1.app.whenReady().then(() => {
                     input.key.toLowerCase() === "s")) {
                 isShortcutPressed = false;
                 window.webContents.send("shortcut-up");
+                // Window will be hidden after transcription completes
             }
         });
         // Also stop recording when window loses focus
@@ -189,7 +192,16 @@ electron_1.app.whenReady().then(() => {
             if (isShortcutPressed) {
                 isShortcutPressed = false;
                 window.webContents.send("shortcut-up");
+                // Window will be hidden after transcription completes
             }
+        });
+        // Handle transcription complete event
+        electron_1.ipcMain.on("transcription-complete", () => {
+            setTimeout(() => {
+                if (window && !isShortcutPressed) {
+                    window.hide();
+                }
+            }, 3000); // Hide window 3 seconds after transcription output is shown
         });
     }
     // Handle shortcut change requests from renderer

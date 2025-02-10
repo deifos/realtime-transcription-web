@@ -26,6 +26,8 @@ function registerRecordingShortcut(shortcut: string) {
       if (mainWindow && !isShortcutPressed) {
         isShortcutPressed = true;
         mainWindow.webContents.send("shortcut-down");
+        mainWindow.show();
+        mainWindow.focus();
       }
     });
 
@@ -205,6 +207,7 @@ app.whenReady().then(() => {
       ) {
         isShortcutPressed = false;
         window.webContents.send("shortcut-up");
+        // Window will be hidden after transcription completes
       }
     });
 
@@ -213,7 +216,17 @@ app.whenReady().then(() => {
       if (isShortcutPressed) {
         isShortcutPressed = false;
         window.webContents.send("shortcut-up");
+        // Window will be hidden after transcription completes
       }
+    });
+
+    // Handle transcription complete event
+    ipcMain.on("transcription-complete", () => {
+      setTimeout(() => {
+        if (window && !isShortcutPressed) {
+          window.hide();
+        }
+      }, 3000); // Hide window 3 seconds after transcription output is shown
     });
   }
 

@@ -27,4 +27,5 @@ contextBridge.exposeInMainWorld("electron", {
       ipcRenderer.invoke("update-shortcut", shortcut),
     getCurrent: () => ipcRenderer.invoke("get-shortcut"),
   },
+  notifyTranscriptionComplete: () => ipcRenderer.send("transcription-complete"),
 });

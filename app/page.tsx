@@ -21,6 +21,7 @@ declare global {
         update: (shortcut: string) => Promise<boolean>;
         getCurrent: () => Promise<string>;
       };
+      notifyTranscriptionComplete: () => void;
     };
   }
 }
@@ -65,6 +66,9 @@ export default function Home() {
         } else if (event.data.type === "output") {
           console.log("Transcription received:", event.data.message);
           setMessages((prev) => [...prev, event.data]);
+          if (window.electron) {
+            window.electron.notifyTranscriptionComplete();
+          }
         }
       };
 

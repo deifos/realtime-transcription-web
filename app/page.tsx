@@ -22,6 +22,9 @@ declare global {
         getCurrent: () => Promise<string>;
       };
       notifyTranscriptionComplete: () => void;
+      clipboard: {
+        writeText: (text: string) => Promise<boolean>;
+      };
     };
   }
 }
@@ -67,6 +70,12 @@ export default function Home() {
           console.log("Transcription received:", event.data.message);
           setMessages((prev) => [...prev, event.data]);
           if (window.electron) {
+            window.electron.clipboard
+              .writeText(event.data.message)
+              .then(() => console.log("Text copied to clipboard"))
+              .catch((err) =>
+                console.error("Failed to copy to clipboard:", err)
+              );
             window.electron.notifyTranscriptionComplete();
           }
         }

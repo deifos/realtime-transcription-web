@@ -28,4 +28,7 @@ electron_1.contextBridge.exposeInMainWorld("electron", {
         getCurrent: () => electron_1.ipcRenderer.invoke("get-shortcut"),
     },
     notifyTranscriptionComplete: () => electron_1.ipcRenderer.send("transcription-complete"),
+    clipboard: {
+        writeText: (text) => electron_1.ipcRenderer.invoke("clipboard-write", text),
+    },
 });

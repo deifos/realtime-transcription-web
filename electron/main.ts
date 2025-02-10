@@ -6,6 +6,7 @@ import {
   nativeImage,
   globalShortcut,
   ipcMain,
+  clipboard,
 } from "electron";
 import { join } from "path";
 import { store } from "./store";
@@ -190,6 +191,17 @@ app.whenReady().then(() => {
   // Register the shortcut from settings
   const shortcut = store.shortcuts.startRecording;
   registerRecordingShortcut(shortcut);
+
+  // Handle clipboard write requests
+  ipcMain.handle("clipboard-write", async (_, text: string) => {
+    try {
+      clipboard.writeText(text);
+      return true;
+    } catch (error) {
+      console.error("Failed to write to clipboard:", error);
+      return false;
+    }
+  });
 
   // Stop recording when keys are released
   if (mainWindow) {

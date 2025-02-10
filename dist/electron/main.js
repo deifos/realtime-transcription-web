@@ -171,6 +171,17 @@ electron_1.app.whenReady().then(() => {
     // Register the shortcut from settings
     const shortcut = store_1.store.shortcuts.startRecording;
     registerRecordingShortcut(shortcut);
+    // Handle clipboard write requests
+    electron_1.ipcMain.handle("clipboard-write", async (_, text) => {
+        try {
+            electron_1.clipboard.writeText(text);
+            return true;
+        }
+        catch (error) {
+            console.error("Failed to write to clipboard:", error);
+            return false;
+        }
+    });
     // Stop recording when keys are released
     if (mainWindow) {
         const window = mainWindow;

@@ -10,6 +10,15 @@ type WorkerMessage =
   | { type: "output"; message: string; duration?: string }
   | { type: "error"; error: string };
 
+declare global {
+  interface Window {
+    electron: {
+      onShortcutDown: (callback: () => void) => () => void;
+      onShortcutUp: (callback: () => void) => () => void;
+    };
+  }
+}
+
 export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<WorkerMessage[]>([]);
@@ -160,8 +169,34 @@ export default function Home() {
       }
     };
 
+    // Handle keyboard shortcuts
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
+
+    // Handle global shortcut
+    if (window.electron) {
+      const cleanupDown = window.electron.onShortcutDown(async () => {
+        if (!isRecordingRef.current) {
+          setIsSpacePressed(true);
+          await startRecording();
+        }
+      });
+
+      const cleanupUp = window.electron.onShortcutUp(() => {
+        if (isRecordingRef.current) {
+          setIsSpacePressed(false);
+          stopRecording();
+        }
+      });
+
+      return () => {
+        window.removeEventListener("keydown", handleKeyDown);
+        window.removeEventListener("keyup", handleKeyUp);
+        cleanupDown();
+        cleanupUp();
+      };
+    }
+
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);

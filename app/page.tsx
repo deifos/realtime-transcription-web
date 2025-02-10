@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { SAMPLE_RATE } from "@/lib/constants";
+import { Loader2 } from "lucide-react";
 
 type WorkerMessage =
   | { type: "status"; message: string; duration?: string }
@@ -14,6 +15,7 @@ export default function Home() {
   const [messages, setMessages] = useState<WorkerMessage[]>([]);
   const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+  const [isReady, setIsReady] = useState<boolean>(false);
 
   const worker = useRef<Worker | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -23,35 +25,45 @@ export default function Home() {
   const isRecordingRef = useRef<boolean>(false);
 
   useEffect(() => {
-    worker.current = new Worker(
-      new URL("./worker_transcriber.js", import.meta.url),
-      { type: "module" }
-    );
+    try {
+      worker.current = new Worker(
+        new URL("./worker_transcriber.js", import.meta.url),
+        { type: "module" }
+      );
 
-    const onMessage = (event: MessageEvent<WorkerMessage>) => {
-      if (event.data.type === "error") {
-        console.error("Worker error:", event.data.error);
-        setError(event.data.error);
-        return;
-      }
-      if (event.data.type === "status") {
-        console.log("Status update:", event.data.message);
-        setMessages((prev) => [...prev, event.data]);
-        if (event.data.message === "transcription_complete") {
-          setIsTranscribing(false);
+      const onMessage = (event: MessageEvent<WorkerMessage>) => {
+        if (event.data.type === "error") {
+          console.error("Worker error:", event.data.error);
+          setError(event.data.error);
+          return;
         }
-      } else if (event.data.type === "output") {
-        console.log("Transcription received:", event.data.message);
-        setMessages((prev) => [...prev, event.data]);
-      }
-    };
+        if (event.data.type === "status") {
+          console.log("Status update:", event.data.message);
+          setMessages((prev) => [...prev, event.data]);
+          if (event.data.message === "Ready!") {
+            setIsReady(true);
+          }
+          if (event.data.message === "transcription_complete") {
+            setIsTranscribing(false);
+          }
+        } else if (event.data.type === "output") {
+          console.log("Transcription received:", event.data.message);
+          setMessages((prev) => [...prev, event.data]);
+        }
+      };
 
-    worker.current.addEventListener("message", onMessage);
-    return () => {
-      if (worker.current) {
-        worker.current.removeEventListener("message", onMessage);
-      }
-    };
+      worker.current.addEventListener("message", onMessage);
+      return () => {
+        if (worker.current) {
+          worker.current.removeEventListener("message", onMessage);
+        }
+      };
+    } catch (error) {
+      console.error("Failed to initialize worker:", error);
+      setError(
+        error instanceof Error ? error.message : "Failed to initialize worker"
+      );
+    }
   }, []);
 
   const startRecording = async (): Promise<void> => {
@@ -165,6 +177,11 @@ export default function Home() {
           </div>
           <div className="text-red-300 text-xl">{error}</div>
         </div>
+      ) : !isReady ? (
+        <div className="flex flex-col items-center justify-center space-y-4">
+          <Loader2 className="h-8 w-8 animate-spin text-slate-600" />
+          <p className="text-slate-600 text-lg">Loading AI Model...</p>
+        </div>
       ) : (
         <>
           <div className="text-center flex flex-col items-center justify-center h-full w-full ">
@@ -210,7 +227,7 @@ export default function Home() {
                 );
               })}
             </div>
-            <div className=" z-10 text-slate-600">
+            <div className="z-10 text-slate-600">
               {isSpacePressed
                 ? "Recording..."
                 : "Press and hold the SPACEBAR to record"}

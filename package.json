@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "electron-dev": "electron ."
+    "tsc": "tsc -p electron/tsconfig.json",
+    "electron-dev": "set NODE_ENV=development && npm run tsc && electron ./dist/electron/main.js"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.0.13",
@@ -33,11 +34,12 @@
     "@types/react-dom": "^19",
     "@webgpu/types": "^0.1.52",
     "electron": "^29.1.0",
+    "@types/electron": "^1.6.10",
     "eslint": "^9",
     "eslint-config-next": "15.1.3",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
   },
-  "main": "main.js"
+  "main": "./dist/electron/main.js"
 }

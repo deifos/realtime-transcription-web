@@ -23,6 +23,13 @@ electron_1.contextBridge.exposeInMainWorld("electron", {
             electron_1.ipcRenderer.removeListener("open-settings", handler);
         };
     },
+    onPlaySound: (callback) => {
+        const handler = (_, sound) => callback(sound);
+        electron_1.ipcRenderer.on("play-sound", handler);
+        return () => {
+            electron_1.ipcRenderer.removeListener("play-sound", handler);
+        };
+    },
     shortcuts: {
         update: (shortcut) => electron_1.ipcRenderer.invoke("update-shortcut", shortcut),
         getCurrent: () => electron_1.ipcRenderer.invoke("get-shortcut"),

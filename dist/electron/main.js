@@ -16,6 +16,7 @@ function registerRecordingShortcut(shortcut) {
         const success = electron_1.globalShortcut.register(shortcut, () => {
             if (mainWindow && !isShortcutPressed) {
                 isShortcutPressed = true;
+                mainWindow.webContents.send("play-sound", "start");
                 mainWindow.webContents.send("shortcut-down");
                 mainWindow.show();
                 mainWindow.focus();
@@ -144,7 +145,9 @@ function createWindow() {
             return false;
         }
     });
-    mainWindow.webContents.openDevTools();
+    if (process.env.NODE_ENV === "development") {
+        mainWindow.webContents.openDevTools();
+    }
 }
 // This needs to be called before app is ready
 electron_1.app.commandLine.appendSwitch("enable-unsafe-webgpu");
@@ -194,23 +197,23 @@ electron_1.app.whenReady().then(() => {
                     input.key === "Shift" ||
                     input.key.toLowerCase() === "s")) {
                 isShortcutPressed = false;
+                window.webContents.send("play-sound", "stop");
                 window.webContents.send("shortcut-up");
-                // Window will be hidden after transcription completes
             }
         });
         // Also stop recording when window loses focus
         window.on("blur", () => {
             if (isShortcutPressed) {
                 isShortcutPressed = false;
+                window.webContents.send("play-sound", "stop");
                 window.webContents.send("shortcut-up");
-                // Window will be hidden after transcription completes
             }
         });
         // Handle transcription complete event
         electron_1.ipcMain.on("transcription-complete", () => {
             setTimeout(() => {
-                if (window && !isShortcutPressed) {
-                    window.hide();
+                if (mainWindow && !isShortcutPressed) {
+                    mainWindow.hide();
                 }
             }, 3000); // Hide window 3 seconds after transcription output is shown
         });

@@ -26,6 +26,7 @@ function registerRecordingShortcut(shortcut: string) {
     const success = globalShortcut.register(shortcut, () => {
       if (mainWindow && !isShortcutPressed) {
         isShortcutPressed = true;
+        mainWindow.webContents.send("play-sound", "start");
         mainWindow.webContents.send("shortcut-down");
         mainWindow.show();
         mainWindow.focus();
@@ -162,7 +163,9 @@ function createWindow(): void {
     }
   });
 
-  mainWindow.webContents.openDevTools();
+  if (process.env.NODE_ENV === "development") {
+    mainWindow.webContents.openDevTools();
+  }
 }
 
 // This needs to be called before app is ready
@@ -218,8 +221,8 @@ app.whenReady().then(() => {
           input.key.toLowerCase() === "s")
       ) {
         isShortcutPressed = false;
+        window.webContents.send("play-sound", "stop");
         window.webContents.send("shortcut-up");
-        // Window will be hidden after transcription completes
       }
     });
 
@@ -227,16 +230,16 @@ app.whenReady().then(() => {
     window.on("blur", () => {
       if (isShortcutPressed) {
         isShortcutPressed = false;
+        window.webContents.send("play-sound", "stop");
         window.webContents.send("shortcut-up");
-        // Window will be hidden after transcription completes
       }
     });
 
     // Handle transcription complete event
     ipcMain.on("transcription-complete", () => {
       setTimeout(() => {
-        if (window && !isShortcutPressed) {
-          window.hide();
+        if (mainWindow && !isShortcutPressed) {
+          mainWindow.hide();
         }
       }, 3000); // Hide window 3 seconds after transcription output is shown
     });

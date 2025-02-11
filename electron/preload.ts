@@ -22,6 +22,14 @@ contextBridge.exposeInMainWorld("electron", {
       ipcRenderer.removeListener("open-settings", handler);
     };
   },
+  onPlaySound: (callback: (sound: string) => void) => {
+    const handler = (_: Electron.IpcRendererEvent, sound: string) =>
+      callback(sound);
+    ipcRenderer.on("play-sound", handler);
+    return () => {
+      ipcRenderer.removeListener("play-sound", handler);
+    };
+  },
   shortcuts: {
     update: (shortcut: string) =>
       ipcRenderer.invoke("update-shortcut", shortcut),

@@ -22,6 +22,7 @@ function registerRecordingShortcut(shortcut: string) {
   if (currentShortcut) {
     console.log("Unregistering previous shortcut:", currentShortcut);
     globalShortcut.unregister(currentShortcut);
+    globalShortcut.unregister("Space");
   }
 
   try {
@@ -37,22 +38,22 @@ function registerRecordingShortcut(shortcut: string) {
         isShortcutPressed = true;
         mainWindow.webContents.send("play-sound", "start");
         mainWindow.webContents.send("shortcut-down");
-
-        // Register space for stopping only while recording
-        globalShortcut.register("Space", () => {
-          console.log("Space pressed, stopping recording");
-          if (mainWindow && isShortcutPressed) {
-            isShortcutPressed = false;
-            mainWindow.webContents.send("play-sound", "stop");
-            mainWindow.webContents.send("stop-recording");
-            // Unregister space after stopping
-            globalShortcut.unregister("Space");
-          }
-        });
       }
     });
 
-    if (success) {
+    // Register space for stopping
+    const spaceSuccess = globalShortcut.register("Space", () => {
+      console.log("Space pressed, current state:", { isShortcutPressed });
+      if (mainWindow && isShortcutPressed) {
+        // Stop recording
+        console.log("Stopping recording via Space");
+        isShortcutPressed = false;
+        mainWindow.webContents.send("play-sound", "stop");
+        mainWindow.webContents.send("stop-recording");
+      }
+    });
+
+    if (success && spaceSuccess) {
       currentShortcut = shortcut;
       console.log("Successfully registered shortcuts");
       return true;
@@ -225,32 +226,27 @@ app.whenReady().then(() => {
   // Handle clipboard write requests
   ipcMain.handle("clipboard-write", async (_, text: string) => {
     try {
-      console.log("Handling clipboard write request:", { text });
-
       // Store the current clipboard content
       const previousClipboard = clipboard.readText();
-      console.log("Previous clipboard content stored");
 
       // Write the new text and simulate paste
       clipboard.writeText(text);
       console.log("Text copied to clipboard, simulating paste...");
 
       // Small delay to ensure clipboard is updated
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       if (process.platform === "darwin") {
         robotjs.keyTap("v", ["command"]);
       } else {
         robotjs.keyTap("v", ["control"]);
       }
-      console.log("Paste simulated");
 
       // Small delay before restoring clipboard
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Restore the previous clipboard content
       clipboard.writeText(previousClipboard);
-      console.log("Previous clipboard content restored");
 
       return true;
     } catch (error) {
@@ -261,7 +257,7 @@ app.whenReady().then(() => {
 
   // Handle transcription complete event
   ipcMain.on("transcription-complete", () => {
-    console.log("Transcription complete event received");
+    // No need to hide window since we're not showing it
   });
 
   // Handle shortcut change requests from renderer

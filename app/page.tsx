@@ -26,6 +26,7 @@ declare global {
       clipboard: {
         writeText: (text: string) => Promise<boolean>;
       };
+      onForceCleanup: (callback: () => void) => () => void;
     };
   }
 }
@@ -72,13 +73,11 @@ export default function Home() {
         } else if (event.data.type === "output") {
           console.log("Transcription received:", event.data.message);
           setMessages((prev) => [...prev, event.data]);
-          if (window.electron) {
+          if (!isRecordingRef.current && window.electron) {
             window.electron.clipboard
               .writeText(event.data.message)
-              .then(() => console.log("Text copied to clipboard"))
-              .catch((err) =>
-                console.error("Failed to copy to clipboard:", err)
-              );
+              .then(() => console.log("Text pasted at cursor"))
+              .catch((err) => console.error("Failed to paste text:", err));
             window.electron.notifyTranscriptionComplete();
           }
         }
@@ -150,24 +149,71 @@ export default function Home() {
     }
   };
 
-  const stopRecording = (): void => {
+  const stopRecording = async (): Promise<void> => {
     if (!isRecordingRef.current) return;
+    console.log("=== START RECORDING CLEANUP ===");
+    console.log("1. Marking as not recording");
+
+    // First, mark as not recording
     isRecordingRef.current = false;
+    setIsTranscribing(false);
 
-    worker.current?.postMessage({ type: "command", command: "stop" });
-
-    setTimeout(() => {
-      if (isTranscribing) {
-        worker.current?.postMessage({ type: "command", command: "finalize" });
+    try {
+      // 1. Stop the worker first
+      console.log("2. Stopping worker");
+      if (worker.current) {
+        worker.current.postMessage({ type: "command", command: "stop" });
+        worker.current.postMessage({ type: "command", command: "finalize" });
+        console.log("   Worker commands sent");
       }
 
+      // 2. Stop and cleanup audio tracks
+      console.log("3. Cleaning up audio tracks");
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
+        const tracks = streamRef.current.getTracks();
+        console.log(`   Found ${tracks.length} tracks to stop`);
+        tracks.forEach((track, index) => {
+          console.log(
+            `   Stopping track ${index + 1}:`,
+            track.kind,
+            track.label
+          );
+          track.stop();
+          track.enabled = false;
+        });
+        streamRef.current = null;
+        console.log("   Tracks cleanup complete");
       }
-      if (sourceRef.current && workletRef.current) {
-        sourceRef.current.disconnect(workletRef.current);
+
+      // 3. Disconnect audio nodes
+      console.log("4. Disconnecting audio nodes");
+      if (sourceRef.current) {
+        if (workletRef.current) {
+          console.log("   Disconnecting source from worklet");
+          sourceRef.current.disconnect(workletRef.current);
+        }
+        sourceRef.current = null;
       }
-    }, 1000);
+
+      if (workletRef.current) {
+        console.log("   Closing worklet");
+        workletRef.current.disconnect();
+        workletRef.current.port.close();
+        workletRef.current = null;
+      }
+
+      // 4. Close audio context last
+      console.log("5. Closing audio context");
+      if (audioContextRef.current) {
+        await audioContextRef.current.close();
+        console.log("   Audio context closed");
+        audioContextRef.current = null;
+      }
+
+      console.log("=== CLEANUP COMPLETE ===");
+    } catch (err) {
+      console.error("=== ERROR DURING CLEANUP ===", err);
+    }
   };
 
   useEffect(() => {
@@ -179,11 +225,11 @@ export default function Home() {
       }
     };
 
-    const handleKeyUp = (event: KeyboardEvent) => {
+    const handleKeyUp = async (event: KeyboardEvent) => {
       if (event.code === "Space") {
         event.preventDefault();
         setIsSpacePressed(false);
-        stopRecording();
+        await stopRecording();
       }
     };
 
@@ -197,7 +243,11 @@ export default function Home() {
     if (window.electron) {
       cleanupFns.push(
         window.electron.onShortcutDown(async () => {
+          console.log("Shortcut down received, current state:", {
+            isRecordingRef: isRecordingRef.current,
+          });
           if (!isRecordingRef.current) {
+            console.log("Starting recording from shortcut");
             setIsSpacePressed(true);
             await startRecording();
           }
@@ -205,10 +255,15 @@ export default function Home() {
       );
 
       cleanupFns.push(
-        window.electron.onShortcutUp(() => {
+        window.electron.onShortcutUp(async () => {
+          console.log("Shortcut up received, current state:", {
+            isRecordingRef: isRecordingRef.current,
+          });
           if (isRecordingRef.current) {
+            console.log("Stopping recording from shortcut");
             setIsSpacePressed(false);
-            stopRecording();
+            await stopRecording();
+            console.log("Recording stopped from shortcut");
           }
         })
       );
@@ -221,9 +276,9 @@ export default function Home() {
     }
 
     // Cleanup function to ensure resources are released
-    const cleanup = () => {
+    const cleanup = async () => {
       if (isRecordingRef.current) {
-        stopRecording();
+        await stopRecording();
       }
       cleanupFns.forEach((cleanup) => cleanup());
     };

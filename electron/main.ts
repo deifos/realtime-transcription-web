@@ -10,6 +10,7 @@ import {
 } from "electron";
 import { join } from "path";
 import { store } from "./store";
+import robotjs from "robotjs";
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -19,22 +20,34 @@ let isShortcutPressed = false;
 
 function registerRecordingShortcut(shortcut: string) {
   if (currentShortcut) {
+    console.log("Unregistering previous shortcut:", currentShortcut);
     globalShortcut.unregister(currentShortcut);
   }
 
   try {
+    console.log("Registering shortcut:", shortcut);
     const success = globalShortcut.register(shortcut, () => {
-      if (mainWindow && !isShortcutPressed) {
-        isShortcutPressed = true;
-        mainWindow.webContents.send("play-sound", "start");
-        mainWindow.webContents.send("shortcut-down");
-        mainWindow.show();
-        mainWindow.focus();
+      console.log("Shortcut triggered, current state:", { isShortcutPressed });
+      if (mainWindow) {
+        if (!isShortcutPressed) {
+          // Start recording
+          console.log("Starting recording via shortcut");
+          isShortcutPressed = true;
+          mainWindow.webContents.send("play-sound", "start");
+          mainWindow.webContents.send("shortcut-down");
+        } else {
+          // Stop recording
+          console.log("Stopping recording via shortcut");
+          isShortcutPressed = false;
+          mainWindow.webContents.send("play-sound", "stop");
+          mainWindow.webContents.send("shortcut-up");
+        }
       }
     });
 
     if (success) {
       currentShortcut = shortcut;
+      console.log("Successfully registered shortcut");
       return true;
     } else {
       console.error(`Failed to register shortcut: ${shortcut}`);
@@ -75,8 +88,7 @@ function createTray(): void {
         if (mainWindow?.isVisible()) {
           mainWindow.hide();
         } else {
-          mainWindow?.show();
-          mainWindow?.focus();
+          mainWindow?.showInactive();
         }
       },
     },
@@ -115,6 +127,8 @@ function createTray(): void {
 }
 
 function createWindow(): void {
+  console.log("Creating window with NODE_ENV:", process.env.NODE_ENV);
+
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
@@ -124,13 +138,13 @@ function createWindow(): void {
       webSecurity: true,
       enableWebSQL: false,
       preload: join(__dirname, "preload.js"),
+      devTools: true,
     },
-    // Add window customization for better desktop experience
-    frame: true, // Changed to true for now to ensure window controls are visible
-    transparent: false, // Changed to false for better visibility
-    resizable: true, // Changed to true for better usability
-    skipTaskbar: false, // Changed to false to show in taskbar while debugging
-    show: false, // Don't show on startup
+    frame: true,
+    transparent: false,
+    resizable: true,
+    skipTaskbar: false,
+    show: false,
   });
 
   // Enable WebGPU
@@ -148,10 +162,20 @@ function createWindow(): void {
     }, 1000);
   });
 
-  // Show window when it's ready to prevent white flash
+  // Show window when ready
   mainWindow.once("ready-to-show", () => {
+    console.log("Window ready to show");
     mainWindow?.show();
-    mainWindow?.focus();
+    mainWindow?.webContents.openDevTools();
+    console.log("DevTools opened");
+  });
+
+  // Register DevTools shortcut
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.control && input.key.toLowerCase() === "i") {
+      console.log("DevTools shortcut pressed");
+      mainWindow?.webContents.toggleDevTools();
+    }
   });
 
   // Hide instead of close when the close button is clicked
@@ -162,10 +186,6 @@ function createWindow(): void {
       return false;
     }
   });
-
-  if (process.env.NODE_ENV === "development") {
-    mainWindow.webContents.openDevTools();
-  }
 }
 
 // This needs to be called before app is ready
@@ -198,52 +218,39 @@ app.whenReady().then(() => {
   // Handle clipboard write requests
   ipcMain.handle("clipboard-write", async (_, text: string) => {
     try {
+      // Store the current clipboard content
+      const previousClipboard = clipboard.readText();
+
+      // Write the new text and simulate paste
       clipboard.writeText(text);
+      console.log("Text copied to clipboard, simulating paste...");
+
+      // Small delay to ensure clipboard is updated
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      if (process.platform === "darwin") {
+        robotjs.keyTap("v", ["command"]);
+      } else {
+        robotjs.keyTap("v", ["control"]);
+      }
+
+      // Small delay before restoring clipboard
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // Restore the previous clipboard content
+      clipboard.writeText(previousClipboard);
+
       return true;
     } catch (error) {
-      console.error("Failed to write to clipboard:", error);
+      console.error("Failed to paste text:", error);
       return false;
     }
   });
 
-  // Stop recording when keys are released
-  if (mainWindow) {
-    const window = mainWindow;
-
-    // Monitor key states
-    window.webContents.on("before-input-event", (event, input) => {
-      // Check for any key release when shortcut is active
-      if (
-        isShortcutPressed &&
-        input.type === "keyUp" &&
-        (input.key === "Alt" ||
-          input.key === "Shift" ||
-          input.key.toLowerCase() === "s")
-      ) {
-        isShortcutPressed = false;
-        window.webContents.send("play-sound", "stop");
-        window.webContents.send("shortcut-up");
-      }
-    });
-
-    // Also stop recording when window loses focus
-    window.on("blur", () => {
-      if (isShortcutPressed) {
-        isShortcutPressed = false;
-        window.webContents.send("play-sound", "stop");
-        window.webContents.send("shortcut-up");
-      }
-    });
-
-    // Handle transcription complete event
-    ipcMain.on("transcription-complete", () => {
-      setTimeout(() => {
-        if (mainWindow && !isShortcutPressed) {
-          mainWindow.hide();
-        }
-      }, 3000); // Hide window 3 seconds after transcription output is shown
-    });
-  }
+  // Handle transcription complete event
+  ipcMain.on("transcription-complete", () => {
+    // No need to hide window since we're not showing it
+  });
 
   // Handle shortcut change requests from renderer
   ipcMain.handle("update-shortcut", async (_, shortcut: string) => {

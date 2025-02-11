@@ -2,14 +2,20 @@ import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("electron", {
   onShortcutDown: (callback: () => void) => {
-    const handler = () => callback();
+    const handler = () => {
+      console.log("Preload: Received shortcut-down event");
+      callback();
+    };
     ipcRenderer.on("shortcut-down", handler);
     return () => {
       ipcRenderer.removeListener("shortcut-down", handler);
     };
   },
   onShortcutUp: (callback: () => void) => {
-    const handler = () => callback();
+    const handler = () => {
+      console.log("Preload: Received shortcut-up event");
+      callback();
+    };
     ipcRenderer.on("shortcut-up", handler);
     return () => {
       ipcRenderer.removeListener("shortcut-up", handler);
@@ -28,6 +34,13 @@ contextBridge.exposeInMainWorld("electron", {
     ipcRenderer.on("play-sound", handler);
     return () => {
       ipcRenderer.removeListener("play-sound", handler);
+    };
+  },
+  onForceCleanup: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on("force-cleanup", handler);
+    return () => {
+      ipcRenderer.removeListener("force-cleanup", handler);
     };
   },
   shortcuts: {

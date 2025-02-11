@@ -1,8 +1,12 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path_1 = require("path");
 const store_1 = require("./store");
+const robotjs_1 = __importDefault(require("robotjs"));
 let mainWindow = null;
 let tray = null;
 let isQuitting = false;
@@ -10,20 +14,33 @@ let currentShortcut = null;
 let isShortcutPressed = false;
 function registerRecordingShortcut(shortcut) {
     if (currentShortcut) {
+        console.log("Unregistering previous shortcut:", currentShortcut);
         electron_1.globalShortcut.unregister(currentShortcut);
     }
     try {
+        console.log("Registering shortcut:", shortcut);
         const success = electron_1.globalShortcut.register(shortcut, () => {
-            if (mainWindow && !isShortcutPressed) {
-                isShortcutPressed = true;
-                mainWindow.webContents.send("play-sound", "start");
-                mainWindow.webContents.send("shortcut-down");
-                mainWindow.show();
-                mainWindow.focus();
+            console.log("Shortcut triggered, current state:", { isShortcutPressed });
+            if (mainWindow) {
+                if (!isShortcutPressed) {
+                    // Start recording
+                    console.log("Starting recording via shortcut");
+                    isShortcutPressed = true;
+                    mainWindow.webContents.send("play-sound", "start");
+                    mainWindow.webContents.send("shortcut-down");
+                }
+                else {
+                    // Stop recording
+                    console.log("Stopping recording via shortcut");
+                    isShortcutPressed = false;
+                    mainWindow.webContents.send("play-sound", "stop");
+                    mainWindow.webContents.send("shortcut-up");
+                }
             }
         });
         if (success) {
             currentShortcut = shortcut;
+            console.log("Successfully registered shortcut");
             return true;
         }
         else {
@@ -64,8 +81,7 @@ function createTray() {
                     mainWindow.hide();
                 }
                 else {
-                    mainWindow?.show();
-                    mainWindow?.focus();
+                    mainWindow?.showInactive();
                 }
             },
         },
@@ -102,6 +118,7 @@ function createTray() {
     });
 }
 function createWindow() {
+    console.log("Creating window with NODE_ENV:", process.env.NODE_ENV);
     mainWindow = new electron_1.BrowserWindow({
         width: 800,
         height: 600,
@@ -111,13 +128,13 @@ function createWindow() {
             webSecurity: true,
             enableWebSQL: false,
             preload: (0, path_1.join)(__dirname, "preload.js"),
+            devTools: true,
         },
-        // Add window customization for better desktop experience
-        frame: true, // Changed to true for now to ensure window controls are visible
-        transparent: false, // Changed to false for better visibility
-        resizable: true, // Changed to true for better usability
-        skipTaskbar: false, // Changed to false to show in taskbar while debugging
-        show: false, // Don't show on startup
+        frame: true,
+        transparent: false,
+        resizable: true,
+        skipTaskbar: false,
+        show: false,
     });
     // Enable WebGPU
     electron_1.app.commandLine.appendSwitch("enable-unsafe-webgpu");
@@ -132,10 +149,19 @@ function createWindow() {
             mainWindow?.loadURL("http://localhost:3001");
         }, 1000);
     });
-    // Show window when it's ready to prevent white flash
+    // Show window when ready
     mainWindow.once("ready-to-show", () => {
+        console.log("Window ready to show");
         mainWindow?.show();
-        mainWindow?.focus();
+        mainWindow?.webContents.openDevTools();
+        console.log("DevTools opened");
+    });
+    // Register DevTools shortcut
+    mainWindow.webContents.on("before-input-event", (event, input) => {
+        if (input.control && input.key.toLowerCase() === "i") {
+            console.log("DevTools shortcut pressed");
+            mainWindow?.webContents.toggleDevTools();
+        }
     });
     // Hide instead of close when the close button is clicked
     mainWindow.on("close", (event) => {
@@ -145,9 +171,6 @@ function createWindow() {
             return false;
         }
     });
-    if (process.env.NODE_ENV === "development") {
-        mainWindow.webContents.openDevTools();
-    }
 }
 // This needs to be called before app is ready
 electron_1.app.commandLine.appendSwitch("enable-unsafe-webgpu");
@@ -177,47 +200,34 @@ electron_1.app.whenReady().then(() => {
     // Handle clipboard write requests
     electron_1.ipcMain.handle("clipboard-write", async (_, text) => {
         try {
+            // Store the current clipboard content
+            const previousClipboard = electron_1.clipboard.readText();
+            // Write the new text and simulate paste
             electron_1.clipboard.writeText(text);
+            console.log("Text copied to clipboard, simulating paste...");
+            // Small delay to ensure clipboard is updated
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            if (process.platform === "darwin") {
+                robotjs_1.default.keyTap("v", ["command"]);
+            }
+            else {
+                robotjs_1.default.keyTap("v", ["control"]);
+            }
+            // Small delay before restoring clipboard
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            // Restore the previous clipboard content
+            electron_1.clipboard.writeText(previousClipboard);
             return true;
         }
         catch (error) {
-            console.error("Failed to write to clipboard:", error);
+            console.error("Failed to paste text:", error);
             return false;
         }
     });
-    // Stop recording when keys are released
-    if (mainWindow) {
-        const window = mainWindow;
-        // Monitor key states
-        window.webContents.on("before-input-event", (event, input) => {
-            // Check for any key release when shortcut is active
-            if (isShortcutPressed &&
-                input.type === "keyUp" &&
-                (input.key === "Alt" ||
-                    input.key === "Shift" ||
-                    input.key.toLowerCase() === "s")) {
-                isShortcutPressed = false;
-                window.webContents.send("play-sound", "stop");
-                window.webContents.send("shortcut-up");
-            }
-        });
-        // Also stop recording when window loses focus
-        window.on("blur", () => {
-            if (isShortcutPressed) {
-                isShortcutPressed = false;
-                window.webContents.send("play-sound", "stop");
-                window.webContents.send("shortcut-up");
-            }
-        });
-        // Handle transcription complete event
-        electron_1.ipcMain.on("transcription-complete", () => {
-            setTimeout(() => {
-                if (mainWindow && !isShortcutPressed) {
-                    mainWindow.hide();
-                }
-            }, 3000); // Hide window 3 seconds after transcription output is shown
-        });
-    }
+    // Handle transcription complete event
+    electron_1.ipcMain.on("transcription-complete", () => {
+        // No need to hide window since we're not showing it
+    });
     // Handle shortcut change requests from renderer
     electron_1.ipcMain.handle("update-shortcut", async (_, shortcut) => {
         const success = registerRecordingShortcut(shortcut);

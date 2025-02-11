@@ -19,37 +19,42 @@ function registerRecordingShortcut(shortcut) {
     }
     try {
         console.log("Registering shortcut:", shortcut);
+        // Register start shortcut
         const success = electron_1.globalShortcut.register(shortcut, () => {
-            console.log("Shortcut triggered, current state:", { isShortcutPressed });
-            if (mainWindow) {
-                if (!isShortcutPressed) {
-                    // Start recording
-                    console.log("Starting recording via shortcut");
-                    isShortcutPressed = true;
-                    mainWindow.webContents.send("play-sound", "start");
-                    mainWindow.webContents.send("shortcut-down");
-                }
-                else {
-                    // Stop recording
-                    console.log("Stopping recording via shortcut");
-                    isShortcutPressed = false;
-                    mainWindow.webContents.send("play-sound", "stop");
-                    mainWindow.webContents.send("shortcut-up");
-                }
+            console.log("Start shortcut triggered, current state:", {
+                isShortcutPressed,
+            });
+            if (mainWindow && !isShortcutPressed) {
+                // Start recording
+                console.log("Starting recording via shortcut");
+                isShortcutPressed = true;
+                mainWindow.webContents.send("play-sound", "start");
+                mainWindow.webContents.send("shortcut-down");
+                // Register space for stopping only while recording
+                electron_1.globalShortcut.register("Space", () => {
+                    console.log("Space pressed, stopping recording");
+                    if (mainWindow && isShortcutPressed) {
+                        isShortcutPressed = false;
+                        mainWindow.webContents.send("play-sound", "stop");
+                        mainWindow.webContents.send("stop-recording");
+                        // Unregister space after stopping
+                        electron_1.globalShortcut.unregister("Space");
+                    }
+                });
             }
         });
         if (success) {
             currentShortcut = shortcut;
-            console.log("Successfully registered shortcut");
+            console.log("Successfully registered shortcuts");
             return true;
         }
         else {
-            console.error(`Failed to register shortcut: ${shortcut}`);
+            console.error(`Failed to register shortcuts`);
             return false;
         }
     }
     catch (error) {
-        console.error(`Error registering shortcut: ${shortcut}`, error);
+        console.error(`Error registering shortcuts:`, error);
         return false;
     }
 }
@@ -156,7 +161,7 @@ function createWindow() {
         mainWindow?.webContents.openDevTools();
         console.log("DevTools opened");
     });
-    // Register DevTools shortcut
+    // Register global keyboard events
     mainWindow.webContents.on("before-input-event", (event, input) => {
         if (input.control && input.key.toLowerCase() === "i") {
             console.log("DevTools shortcut pressed");
@@ -200,23 +205,27 @@ electron_1.app.whenReady().then(() => {
     // Handle clipboard write requests
     electron_1.ipcMain.handle("clipboard-write", async (_, text) => {
         try {
+            console.log("Handling clipboard write request:", { text });
             // Store the current clipboard content
             const previousClipboard = electron_1.clipboard.readText();
+            console.log("Previous clipboard content stored");
             // Write the new text and simulate paste
             electron_1.clipboard.writeText(text);
             console.log("Text copied to clipboard, simulating paste...");
             // Small delay to ensure clipboard is updated
-            await new Promise((resolve) => setTimeout(resolve, 100));
+            await new Promise((resolve) => setTimeout(resolve, 200));
             if (process.platform === "darwin") {
                 robotjs_1.default.keyTap("v", ["command"]);
             }
             else {
                 robotjs_1.default.keyTap("v", ["control"]);
             }
+            console.log("Paste simulated");
             // Small delay before restoring clipboard
-            await new Promise((resolve) => setTimeout(resolve, 100));
+            await new Promise((resolve) => setTimeout(resolve, 200));
             // Restore the previous clipboard content
             electron_1.clipboard.writeText(previousClipboard);
+            console.log("Previous clipboard content restored");
             return true;
         }
         catch (error) {
@@ -226,7 +235,7 @@ electron_1.app.whenReady().then(() => {
     });
     // Handle transcription complete event
     electron_1.ipcMain.on("transcription-complete", () => {
-        // No need to hide window since we're not showing it
+        console.log("Transcription complete event received");
     });
     // Handle shortcut change requests from renderer
     electron_1.ipcMain.handle("update-shortcut", async (_, shortcut) => {
@@ -261,6 +270,7 @@ electron_1.app.on("before-quit", () => {
 electron_1.app.on("will-quit", () => {
     if (currentShortcut) {
         electron_1.globalShortcut.unregister(currentShortcut);
+        electron_1.globalShortcut.unregister("Space");
     }
     electron_1.globalShortcut.unregisterAll();
 });

@@ -21,6 +21,16 @@ contextBridge.exposeInMainWorld("electron", {
       ipcRenderer.removeListener("shortcut-up", handler);
     };
   },
+  onStopRecording: (callback: () => void) => {
+    const handler = () => {
+      console.log("Preload: Received stop-recording event");
+      callback();
+    };
+    ipcRenderer.on("stop-recording", handler);
+    return () => {
+      ipcRenderer.removeListener("stop-recording", handler);
+    };
+  },
   onOpenSettings: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on("open-settings", handler);

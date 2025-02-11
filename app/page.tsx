@@ -27,6 +27,7 @@ declare global {
         writeText: (text: string) => Promise<boolean>;
       };
       onForceCleanup: (callback: () => void) => () => void;
+      onStopRecording: (callback: () => void) => () => void;
     };
   }
 }
@@ -73,7 +74,12 @@ export default function Home() {
         } else if (event.data.type === "output") {
           console.log("Transcription received:", event.data.message);
           setMessages((prev) => [...prev, event.data]);
-          if (!isRecordingRef.current && window.electron) {
+          // Always paste the transcription when we receive output
+          if (window.electron && event.data.message.trim()) {
+            console.log(
+              "Attempting to paste transcription:",
+              event.data.message
+            );
             window.electron.clipboard
               .writeText(event.data.message)
               .then(() => console.log("Text pasted at cursor"))
@@ -218,16 +224,14 @@ export default function Home() {
 
   useEffect(() => {
     const handleKeyDown = async (event: KeyboardEvent) => {
-      if (event.code === "Space" && !event.repeat) {
-        event.preventDefault();
-        setIsSpacePressed(true);
-        await startRecording();
-      }
+      // No need to handle keydown events anymore
     };
 
     const handleKeyUp = async (event: KeyboardEvent) => {
-      if (event.code === "Space") {
+      // Only handle Space for stopping
+      if (event.code === "Space" && isRecordingRef.current) {
         event.preventDefault();
+        console.log(`Stopping recording via ${event.code}`);
         setIsSpacePressed(false);
         await stopRecording();
       }
@@ -255,15 +259,15 @@ export default function Home() {
       );
 
       cleanupFns.push(
-        window.electron.onShortcutUp(async () => {
-          console.log("Shortcut up received, current state:", {
+        window.electron.onStopRecording(async () => {
+          console.log("Stop recording event received, current state:", {
             isRecordingRef: isRecordingRef.current,
           });
           if (isRecordingRef.current) {
-            console.log("Stopping recording from shortcut");
+            console.log("Stopping recording from global event");
             setIsSpacePressed(false);
             await stopRecording();
-            console.log("Recording stopped from shortcut");
+            console.log("Recording stopped successfully");
           }
         })
       );
@@ -378,8 +382,8 @@ export default function Home() {
             </div>
             <div className="z-10 text-slate-600">
               {isSpacePressed
-                ? "Recording..."
-                : "Press and hold the SPACEBAR to record"}
+                ? "Recording... Press SPACE to stop"
+                : "Press Alt+Shift+S to start recording"}
             </div>
           </div>
         </>

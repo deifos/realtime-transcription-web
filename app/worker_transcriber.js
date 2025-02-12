@@ -1,3 +1,7 @@
+// Move these variables to the outer scope
+let silero_vad;
+let transcriber;
+
 (async () => {
   const { AutoModel, Tensor, pipeline } = await import(
     "@huggingface/transformers"
@@ -15,49 +19,44 @@
   const { supportsWebGPU } = await import("../lib/utils");
 
   const device = (await supportsWebGPU()) ? "webgpu" : "wasm";
-  self.postMessage({ type: "info", message: `Using device: "${device}"` });
   self.postMessage({
-    type: "info",
+    type: "status",
     message: "Loading models...",
     duration: "until_next",
   });
 
-  // Load models
-  const silero_vad = await AutoModel.from_pretrained(
-    "onnx-community/silero-vad",
-    {
+  try {
+    // Load models
+    silero_vad = await AutoModel.from_pretrained("onnx-community/silero-vad", {
       config: { model_type: "custom" },
       dtype: "fp32", // Full-precision
-    }
-  ).catch((error) => {
-    self.postMessage({ error });
-    throw error;
-  });
+    });
 
-  const DEVICE_DTYPE_CONFIGS = {
-    webgpu: {
-      encoder_model: "fp32",
-      decoder_model_merged: "q4",
-    },
-    wasm: {
-      encoder_model: "fp32",
-      decoder_model_merged: "q8",
-    },
-  };
-  const transcriber = await pipeline(
-    "automatic-speech-recognition",
-    "onnx-community/moonshine-base-ONNX", // or "onnx-community/whisper-tiny.en",
-    {
-      device,
-      dtype: DEVICE_DTYPE_CONFIGS[device],
-    }
-  ).catch((error) => {
-    self.postMessage({ error });
-    throw error;
-  });
+    const DEVICE_DTYPE_CONFIGS = {
+      webgpu: {
+        encoder_model: "fp32",
+        decoder_model_merged: "q4",
+      },
+      wasm: {
+        encoder_model: "fp32",
+        decoder_model_merged: "q8",
+      },
+    };
+    transcriber = await pipeline(
+      "automatic-speech-recognition",
+      "onnx-community/moonshine-base-ONNX",
+      {
+        device,
+        dtype: DEVICE_DTYPE_CONFIGS[device],
+      }
+    );
 
-  await transcriber(new Float32Array(SAMPLE_RATE)); // Compile shaders
-  self.postMessage({ type: "status", status: "ready", message: "Ready!" });
+    await transcriber(new Float32Array(SAMPLE_RATE)); // Compile shaders
+    self.postMessage({ type: "status", message: "model_loaded" });
+  } catch (error) {
+    self.postMessage({ type: "error", error: error.message });
+    throw error;
+  }
 
   // Transformers.js currently doesn't support simultaneous inference,
   // so we need to chain the inference promises.

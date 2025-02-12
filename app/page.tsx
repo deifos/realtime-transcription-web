@@ -15,6 +15,7 @@ export default function Home() {
   const [messages, setMessages] = useState<WorkerMessage[]>([]);
   const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+  const [isModelLoading, setIsModelLoading] = useState<boolean>(true);
 
   const worker = useRef<Worker | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -35,14 +36,22 @@ export default function Home() {
         setError(event.data.error);
         return;
       }
+
       if (event.data.type === "status") {
-        console.log("Status update:", event.data.message);
-        setMessages((prev) => [...prev, event.data]);
+        if (event.data.message === "model_loaded") {
+          setIsModelLoading(false);
+          return;
+        }
+        if (event.data.message === "Loading models...") {
+          return;
+        }
         if (event.data.message === "transcription_complete") {
           setIsTranscribing(false);
         }
-      } else if (event.data.type === "output") {
-        console.log("Transcription received:", event.data.message);
+        setMessages((prev) => [...prev, event.data]);
+      }
+
+      if (event.data.type === "output") {
         setMessages((prev) => [...prev, event.data]);
       }
     };
@@ -69,6 +78,7 @@ export default function Home() {
   const startRecording = async (): Promise<void> => {
     if (isRecordingRef.current) return;
     isRecordingRef.current = true;
+    setIsTranscribing(true);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -86,33 +96,25 @@ export default function Home() {
       });
       sourceRef.current =
         audioContextRef.current.createMediaStreamSource(stream);
+
       await audioContextRef.current.audioWorklet.addModule(
         new URL("../lib/processor.js", import.meta.url)
       );
+
       workletRef.current = new AudioWorkletNode(
         audioContextRef.current,
         "vad-processor"
       );
+
       sourceRef.current.connect(workletRef.current);
       workletRef.current.port.onmessage = (
         event: MessageEvent<{ buffer: Float32Array }>
       ) => {
-        console.log(
-          "Audio worklet buffer received in main thread:",
-          event.data.buffer
-        );
-        if (
-          event.data.buffer &&
-          event.data.buffer instanceof Float32Array &&
-          event.data.buffer.length > 0
-        ) {
-          console.log("Sending buffer to worker:", event.data.buffer);
-          worker.current?.postMessage({ buffer: event.data.buffer });
-        } else {
-          console.error("Invalid buffer from worklet:", event.data.buffer);
+        if (worker.current && event.data.buffer instanceof Float32Array) {
+          worker.current.postMessage({ buffer: event.data.buffer });
         }
       };
-      setIsTranscribing(true);
+
       worker.current?.postMessage({ type: "command", command: "start" });
     } catch (err) {
       console.error("Error starting recording:", err);
@@ -120,6 +122,7 @@ export default function Home() {
         err instanceof Error ? err.message : "An unknown error occurred"
       );
       isRecordingRef.current = false;
+      setIsTranscribing(false);
     }
   };
 
@@ -179,7 +182,7 @@ export default function Home() {
         </div>
       ) : (
         <>
-          <div className="text-center flex flex-col items-center justify-center h-full w-full ">
+          <div className="text-center flex flex-col items-center justify-center h-full w-full">
             <div className="text-center w-full z-10 text-slate-600 overflow-hidden pb-8">
               {messages.map((msg, index) => {
                 const { type } = msg;
@@ -222,10 +225,20 @@ export default function Home() {
                 );
               })}
             </div>
-            <div className=" z-10 text-slate-600">
-              {isSpacePressed
-                ? "Recording..."
-                : "Press and hold the SPACEBAR to record"}
+            <div className="z-10 text-slate-600">
+              {isModelLoading ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-2xl"
+                >
+                  Loading model...
+                </motion.div>
+              ) : isSpacePressed ? (
+                "Recording..."
+              ) : (
+                "Press and hold the SPACEBAR to record"
+              )}
             </div>
           </div>
         </>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { SAMPLE_RATE } from "@/lib/constants";
+import { requestMicrophonePermission } from "./utils/permissions";
 
 type WorkerMessage =
   | { type: "status"; message: string; duration?: string }
@@ -52,6 +53,17 @@ export default function Home() {
         worker.current.removeEventListener("message", onMessage);
       }
     };
+  }, []);
+
+  useEffect(() => {
+    const checkPermissions = async () => {
+      const hasPermission = await requestMicrophonePermission();
+      if (!hasPermission) {
+        console.log("Microphone permission not granted");
+      }
+    };
+
+    checkPermissions();
   }, []);
 
   const startRecording = async (): Promise<void> => {
